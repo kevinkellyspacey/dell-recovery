@@ -449,7 +449,10 @@ class Page(Plugin):
         try:
             os_path = magic.fetch_output(['readlink','/dev/disk/by-label/'+label]).split('\n')            
         except Exception as err:
-            self.log('os_path command is executed failed, the error is %s'%str(err))
+            # fix the DUALSYS label compatible when we boot from hdd
+            os_path = magic.fetch_output(['readlink','/dev/disk/by-label/UBUNTU']).split('\n')
+            if not os_path:
+                self.log('os_path command is executed failed, the error is %s'%str(err))
        
         os_part = digits.search(os_path[0].split('/')[-1]).group()
 
