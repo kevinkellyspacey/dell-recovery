@@ -1371,7 +1371,16 @@ class Install(InstallPlugin):
                     wfd.write(line)
                 if not found:
                     wfd.write("GRUB_DISABLE_OS_PROBER=true\n")
-
+        #hack function only for one fist dell-recovery tool
+        try:
+            #create recovery image dir to store
+            image_path = os.path.join(self.target,'media','.local','recovery_image')
+            if not os.path.exists(image_path):
+                os.makedirs(image_path)
+            #copy files
+            magic.black_tree("copy",re.compile('casper-rw|casper-uuid'),magic.CDROM_MOUNT,self.target+'/media/.local/recovery_image')
+        except Exception:
+            pass
         #for tos
         try:
             destination = progress.get('dell-recovery/destination')

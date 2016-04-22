@@ -1009,6 +1009,11 @@ arch %s, distributor_str %s" % (bto_version, distributor, release, arch, distrib
         #mount the recovery partition
         mntdir = self.request_mount(recovery, "r", sender, conn)
 
+        #hack function only for onefist dual solution
+        recovery_image = r'/media/.local/recovery_image'
+        if os.path.isdir(recovery_image):
+            mntdir = recovery_image
+        ########################################
         #validate that ubuntu is on the partition
         if not os.path.exists(os.path.join(mntdir, '.disk', 'info')):
             logging.warning("create_ubuntu: recovery partition missing .disk/info.")
