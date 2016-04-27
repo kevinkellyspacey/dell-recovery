@@ -839,13 +839,7 @@ class Page(Plugin):
         """Reports to the frontend an update about th progress"""
         self.frontend.debconf_progress_info(info)
         self.frontend.debconf_progress_set(percent)
-####################################################################    
-    def debug_swap(self):
-        with misc.raised_privileges():
-            partitions = magic.fetch_output(['parted','-s',self.device,'print']).split('\n')
-            for line in partitions:
-                self.log("%s" %(line))        
-##################################################################    
+
     def cleanup(self):
         """Do all the real processing for this plugin.
            * This has to be done here because ok_handler won't run in a fully
@@ -1354,6 +1348,14 @@ class Install(InstallPlugin):
 
         #install dell-recovery only if there is an RP
         if rec_part:
+            #hide the recovery partition as default
+            try:
+                recovery = magic.find_factory_partition_stats()
+                command = ('parted', '-a', 'optimal', '-s', recovery['slave'], 'set', str(recovery['number']), 'msftres', 'on' )
+                misc.execute_root(*command)                
+            except Exception:
+                pass
+            
             to_install.append('dell-recovery')
             to_install.append('dell-eula')
 
