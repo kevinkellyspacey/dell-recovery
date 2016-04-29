@@ -173,7 +173,7 @@ class Install(InstallPlugin):
         """Perform actual install time activities for oem-config"""
         if not 'UBIQUITY_OEM_USER_CONFIG' in os.environ:
             return
-        
+
         #find the '/' mount partition and then label it as UBUNTU
         self.Set_RootPartitionLabel()
 
