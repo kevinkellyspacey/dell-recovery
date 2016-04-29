@@ -168,15 +168,15 @@ class Install(InstallPlugin):
                     misc.execute_root('e2label',item[0],'UBUNTU')
                 except Exception:
                     pass
-        
+
     def install(self, target, progress, *args, **kwargs):
         """Perform actual install time activities for oem-config"""
         if not 'UBIQUITY_OEM_USER_CONFIG' in os.environ:
             return
-        
+
         #find the '/' mount partition and then label it as UBUNTU
         self.Set_RootPartitionLabel()
-        
+
         env = os.environ
         lang = progress.get('debian-installer/locale')
         env['LANG'] = lang

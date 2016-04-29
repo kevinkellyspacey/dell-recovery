@@ -429,7 +429,7 @@ class Page(Plugin):
             self.log(str(err))
         
         if self.test_swap():
-            swap_part = ''  
+            swap_part = ''
        #remove extras
         for number in (os_part,swap_part):
             if number.isdigit():
@@ -444,7 +444,7 @@ class Page(Plugin):
        #remove UBUNTU patition for dual boot
        ##OS num
         os_part = ''
-        swap_part = ''        
+        swap_part = ''
         digits = re.compile('\d+')
         try:
             os_path = magic.fetch_output(['readlink','/dev/disk/by-label/'+label]).split('\n')            
@@ -461,7 +461,7 @@ class Page(Plugin):
             for line in partitions:
                 if 'linux-swap' in line:
                     swap_part = line.split()[0]
-                                               
+
         return os_part,swap_part
 
     def explode_sdr(self):
@@ -891,7 +891,7 @@ class Page(Plugin):
             else:
                 if 'dell-recovery/recovery_type=hdd' in open('/proc/cmdline', 'r').read().split():
                     self.ui.toggle_progress()
-                self.sleep_network()               
+                self.sleep_network()
                 self.delete_swap()
                 self.clean_recipe()
                 self.remove_extra_partitions()
@@ -1199,7 +1199,7 @@ def find_boot_device():
                     mounted_device = line.split()[0]
                     break
     return mounted_device
-    
+
 def reboot_machine(objpath):
     """Reboots the machine"""
     reboot_cmd = '/sbin/reboot'
@@ -1319,7 +1319,7 @@ class Install(InstallPlugin):
         self.progress = progress
 
         rec_part  = magic.find_partition()
-                
+
         from ubiquity import install_misc
         to_install = []
         to_remove  = []
