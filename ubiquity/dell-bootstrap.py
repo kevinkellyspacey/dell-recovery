@@ -294,7 +294,7 @@ class PageGtk(PluginUI):
             except Exception:
                 pass
 
-   def _map_combobox(self, item):
+    def _map_combobox(self, item):
         """Maps a combobox to a question"""
         combobox = None
         if item == DRIVER_INSTALL_QUESTION:
