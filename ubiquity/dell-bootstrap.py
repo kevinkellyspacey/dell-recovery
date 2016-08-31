@@ -282,6 +282,24 @@ class PageGtk(PluginUI):
         self.advanced_page.hide()
         self.plugin_widgets.set_sensitive(True)
 
+    def collect_logs_clicked(self, widget, data = None):
+        """Collect the installation logs especially when the sys installs failed"""
+        log_script_path = "/usr/share/dell/script/fetch_logs.sh"
+        if os.path.exists(log_script_path):
+            try:
+                respond = misc.execute_root('sh',log_script_path)
+                if respond is False:
+                    show_question(self.widgets.get_object('failed_dialog'))
+                show_question(self.widgets.get_object('pass_dialog'))
+            except Exception as err:
+                pass
+
+    def show_question(dialog):
+        """Presents the user with a question"""
+        response = dialog.run()
+        dialog.hide()
+        return (response == Gtk.ResponseType.YES)
+
     def _map_combobox(self, item):
         """Maps a combobox to a question"""
         combobox = None
