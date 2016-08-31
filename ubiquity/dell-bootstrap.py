@@ -291,16 +291,10 @@ class PageGtk(PluginUI):
                 if respond is False:
                     show_question(self.widgets.get_object('failed_dialog'))
                 show_question(self.widgets.get_object('pass_dialog'))
-            except Exception as err:
+            except Exception:
                 pass
 
-    def show_question(dialog):
-        """Presents the user with a question"""
-        response = dialog.run()
-        dialog.hide()
-        return (response == Gtk.ResponseType.YES)
-
-    def _map_combobox(self, item):
+   def _map_combobox(self, item):
         """Maps a combobox to a question"""
         combobox = None
         if item == DRIVER_INSTALL_QUESTION:
@@ -1400,3 +1394,9 @@ class Install(InstallPlugin):
         install_misc.record_removed(to_remove)
 
         return InstallPlugin.install(self, target, progress, *args, **kwargs)
+
+def show_question(dialog):
+    """Presents the user with a question"""
+    response = dialog.run()
+    dialog.hide()
+    return (response == Gtk.ResponseType.YES)
