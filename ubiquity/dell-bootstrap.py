@@ -45,6 +45,8 @@ import tarfile
 import gi
 gi.require_version('UDisks', '2.0')
 from gi.repository import GLib, UDisks
+from gi.repository import Gtk
+
 
 NAME = 'dell-bootstrap'
 BEFORE = 'language'
@@ -285,12 +287,14 @@ class PageGtk(PluginUI):
     def collect_logs_clicked(self, widget, data = None):
         """Collect the installation logs especially when the sys installs failed"""
         log_script_path = "/usr/share/dell/script/fetch_logs.sh"
+#        self.widgets.get_object('pass_dialog').run()
         if os.path.exists(log_script_path):
             try:
-                respond = misc.execute_root('sh',log_script_path)
-                if respond is False:
-                    show_question(self.widgets.get_object('failed_dialog'))
-                show_question(self.widgets.get_object('pass_dialog'))
+#                respond = misc.execute_root('sh',log_script_path)
+#                if respond is False:
+#                    show_question(self.widgets.get_object('failed_dialog'))
+#                show_question(self.widgets.get_object('pass_dialog'))
+                 pass
             except Exception:
                 pass
 
