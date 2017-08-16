@@ -865,23 +865,26 @@ class RPbuilder(Thread):
 
         black_pattern = re.compile('casper-rw|casper-uuid')
 
-        #Check if we are booted from same device as target
+        # Check if we are booted from same device as target
         mounted_device = find_boot_device()
         if self.device in mounted_device:
             raise RuntimeError("Attempting to install to the same device as booted from.\n\
-You will need to clear the contents of the recovery partition\n\
-manually to proceed.")
+        You will need to clear the contents of the recovery partition\n\
+        manually to proceed.")
 
-        #Calculate RP size
-        rp_size = magic.black_tree("size", black_pattern, magic.CDROM_MOUNT)
-        #in mbytes
+        # Calculate RP size
+        rp_size = magic.black_tree("size", black_pattern, magic.CDROM_MOUNT + "/IMAGE")
+        # in mbytes
         rp_size_mb = (rp_size / 1000000) + cushion
 
         # Build new partition table
         command = ('parted', '-s', self.device, 'mklabel', 'gpt')
         result = misc.execute_root(*command)
         if result is False:
-            raise RuntimeError("Error creating new partition table on %s" % (self.device))
+            command = ('partprobe')
+            result = misc.execute_root(*command)
+            if result is False:
+                raise RuntimeError("Error creating new partition table on %s" % (self.device))
 
         self.status("Creating Partitions", 1)
         grub_size = 250
@@ -897,7 +900,7 @@ manually to proceed.")
             rp_part = EFI_RP_PARTITION
             esp_part = EFI_ESP_PARTITION
         for command in commands:
-            #wait for settle
+            # wait for settle
             if command[0] == 'mkfs.msdos':
                 while not os.path.exists(command[-1]):
                     time.sleep(1)
@@ -906,41 +909,97 @@ manually to proceed.")
                 if self.efi:
                     raise RuntimeError("Error formatting disk.")
 
-        #Build RP
-        command = ('parted', '-a', 'optimal', '-s', self.device, 'mkpart', "fat32", "fat32", str(grub_size), str(rp_size_mb + grub_size))
+        # Drag some variable of parted command to support RCX
+        file_format = 'fat32'
+        file_type = 'mkfs.msdos'
+        file_para = '-n'
+        part_label = 'OS'
+
+        # Change file system if installed RCX
+        if os.path.exists(magic.CDROM_MOUNT + '/IMAGE/rcx.flg'):
+            # Set RCX variable parameters
+            file_format = 'ext2'
+            file_type = 'mkfs.ext2'
+            file_para = '-L'
+            part_label = 'rhimg'
+            # Build OS Part
+            command = ('parted', '-a', 'optimal', '-s', self.device, 'mkpart', 'fat32', 'fat32', str(grub_size),
+                       str(250 + grub_size))
+            result = misc.execute_root(*command)
+            if result is False:
+                raise RuntimeError("Error creating new 250 mb OS partition on %s" % (self.device))
+            # Build OS filesystem
+            command = ('mkfs.msdos', '-n', 'OS', self.device + rp_part)
+            while not os.path.exists(command[-1]):
+                time.sleep(1)
+            result = misc.execute_root(*command)
+            if result is False:
+                raise RuntimeError("Error creating fat32 filesystem on %s%s" % (self.device, rp_part))
+            # Refresh the grub_size and rp_part value
+            grub_size = grub_size + 250
+            rp_part = rp_part[:-1] + '3'
+            rp_size_mb = rp_size_mb + 5000
+
+        # Build RP
+        command = ('parted', '-a', 'optimal', '-s', self.device, 'mkpart', file_format, file_format, str(grub_size),
+                   str(rp_size_mb + grub_size))
         result = misc.execute_root(*command)
         if result is False:
             raise RuntimeError("Error creating new %s mb recovery partition on %s" % (rp_size_mb, self.device))
 
-        #Build RP filesystem
+        # Build RP filesystem
         self.status("Formatting Partitions", 2)
-        command = ('mkfs.msdos', '-n', 'OS', self.device + rp_part)
+        if os.path.exists(magic.CDROM_MOUNT + '/IMAGE/rcx.flg'):
+            command = (file_type, '-F', file_para, part_label, self.device + rp_part)
+        else:
+            command = (file_type, file_para, part_label, self.device + rp_part)
         while not os.path.exists(command[-1]):
             time.sleep(1)
         result = misc.execute_root(*command)
         if result is False:
-            raise RuntimeError("Error creating fat32 filesystem on %s%s" % (self.device, rp_part))
+            raise RuntimeError("Error creating %s filesystem on %s%s" % (file_format, self.device, rp_part))
 
-        #Mount RP
+
+        # Mount RP
         mount = misc.execute_root('mount', self.device + rp_part, '/mnt')
         if mount is False:
             raise RuntimeError("Error mounting %s%s" % (self.device, rp_part))
 
-        #Update status and start the file size thread
+        # Update status and start the file size thread
         self.file_size_thread.reset_write(rp_size)
         self.file_size_thread.set_scale_factor(85)
         self.file_size_thread.set_starting_value(2)
         self.file_size_thread.start()
 
-        #Copy RP Files
+        # Copy RP Files
         with misc.raised_privileges():
             if os.path.exists(magic.ISO_MOUNT):
-                magic.black_tree("copy", re.compile(".*\.iso$"), magic.ISO_MOUNT, '/mnt')
-            magic.black_tree("copy", black_pattern, magic.CDROM_MOUNT, '/mnt')
+                magic.black_tree("copy", re.compile(".*\.iso$"), magic.ISO_MOUNT + '/IMAGE', '/mnt')
+            magic.black_tree("copy", black_pattern, magic.CDROM_MOUNT + '/IMAGE', '/mnt')
 
         self.file_size_thread.join()
 
-        #find uuid of drive
+        # combine the RCX iso image as its size is too larger to store in vfat sticky
+        if os.path.exists(magic.CDROM_MOUNT + '/IMAGE/rcx.flg'):
+            with misc.raised_privileges():
+                # merge compress iso files
+                gza_files = glob.glob("/mnt/*.tar.gza*")
+                with open('/mnt/RCX_ISO.tar.gz', 'wb') as outfile:
+                    for fname in sorted(gza_files):
+                        with open(fname, 'rb') as infile:
+                            for line in infile:
+                                outfile.write(line)
+                # remove the gza files
+                for gza_file in gza_files:
+                    os.remove(gza_file)
+            # unpack the iso image
+            commands = [('tar', '-zxf', '/mnt/RCX_ISO.tar.gz', '-C', '/mnt'),
+                        ('rm', '/mnt/RCX_ISO.tar.gz')]
+            for command in commands:
+                unpack = misc.execute_root(*command)
+                if unpack is False:
+                    raise RuntimeError("Error unpacking!!!")
+
         with misc.raised_privileges():
             blkid = magic.fetch_output(['blkid', self.device + rp_part, "-p", "-o", "udev"]).split('\n')
             for item in blkid:
@@ -948,64 +1007,42 @@ manually to proceed.")
                     uuid = item.split('=')[1]
                     break
 
-        #read in any old seed
-        seed = os.path.join('/mnt', 'preseed', 'dell-recovery.seed')
-        keys = magic.parse_seed(seed)
-
-        #process the new options
-        for item in self.preseed_config.split():
-            if '=' in item:
-                key, value = item.split('=')
-                keys[key] = value
-
-        #write out a dell-recovery.seed configuration file
-        with misc.raised_privileges():
-            if not os.path.isdir(os.path.join('/mnt', 'preseed')):
-                os.makedirs(os.path.join('/mnt', 'preseed'))
-            magic.write_seed(seed, keys)
-
-        #Check for a grub.cfg - replace as necessary
-        files = {'recovery_partition.cfg': 'grub.cfg',
-                }
-        for item in files:
-            full_path = os.path.join('/mnt', 'factory', files[item])
-            if os.path.exists(full_path):
-                with misc.raised_privileges():
-                    shutil.move(full_path, full_path + '.old')
-
             with misc.raised_privileges():
-                magic.process_conf_file('/usr/share/dell/grub/' + item, \
-                                        full_path, uuid, EFI_RP_PARTITION)
+                magic.process_conf_file('/cdrom/IMAGE/factory/grub.cfg', \
+                                        '/mnt/factory/grub.cfg', uuid, EFI_RP_PARTITION)
 
-        #Install grub
+        # Install grub
         self.status("Installing GRUB", 88)
         ##If we don't have grub binaries, build them
-        grub_files = ['/cdrom/efi/boot/bootx64.efi',
-                      '/cdrom/efi/boot/grubx64.efi']
+        grub_files = ['/cdrom/IMAGE/efi/boot/bootx64.efi',
+                      '/cdrom/IMAGE/efi/boot/grubx64.efi']
 
         ##Mount ESP
+        if not os.path.exists(os.path.join('/mnt', 'efi')):
+            with misc.raised_privileges():
+                os.makedirs(os.path.join('/mnt', 'efi'))
         mount = misc.execute_root('mount', self.device + esp_part, '/mnt/efi')
         if mount is False:
             raise RuntimeError("Error mounting %s%s" % (self.device, esp_part))
 
         ##find old entries and prep directory
-        direct_path = '/mnt/efi' + '/efi/ubuntu'
+        direct_path = '/mnt/efi' + '/EFI/linux'
         with misc.raised_privileges():
             os.makedirs(direct_path)
 
-            #copy boot loader files
+            # copy boot loader files
             for item in grub_files:
                 if not os.path.exists(item):
                     raise RuntimeError("Error, %s doesn't exist." % item)
                 shutil.copy(item, direct_path)
 
-            #find old entries
+            # find old entries
             bootmgr_output = magic.fetch_output(['efibootmgr', '-v']).split('\n')
 
-            #delete old entries
+            # delete old entries
             for line in bootmgr_output:
                 bootnum = ''
-                if line.startswith('Boot') and 'ubuntu' in line.lower():
+                if line.startswith('Boot') and 'LinuxIns' in line.lower():
                     bootnum = line.split('Boot')[1].replace('*', '').split()[0]
                 if bootnum:
                     bootmgr = misc.execute_root('efibootmgr', '-v', '-b', bootnum, '-B')
@@ -1013,34 +1050,41 @@ manually to proceed.")
                         raise RuntimeError("Error removing old EFI boot manager entries")
 
         target = 'shimx64.efi'
+        source = 'bootx64.efi'
+        # RCX bootloader source file name is different
+        if os.path.exists(magic.CDROM_MOUNT + '/IMAGE/rcx.flg'):
+            source = 'grubx64.efi'
+
         with misc.raised_privileges():
-            os.rename(os.path.join(direct_path, 'bootx64.efi'),
+            os.rename(os.path.join(direct_path, source),
                       os.path.join(direct_path, target))
 
-        add = misc.execute_root('efibootmgr', '-v', '-c', '-d', self.device, '-p', EFI_ESP_PARTITION, '-l', '\\EFI\\ubuntu\\%s' % target, '-L', 'ubuntu')
+        add = misc.execute_root('efibootmgr', '-v', '-c', '-d', self.device, '-p', EFI_ESP_PARTITION, '-l',
+                                '\\EFI\\linux\\%s' % target, '-L', 'LinuxIns')
         if add is False:
             raise RuntimeError("Error adding efi entry to %s%s" % (self.device, esp_part))
+        # set the LinuxIns entry on the first place for next reboot
+        with misc.raised_privileges():
+            bootmgr_output = magic.fetch_output(['efibootmgr', '-v']).split('\n')
+            for line in bootmgr_output:
+                bootnum = ''
+                if line.startswith('Boot') and 'LinuxIns' in line:
+                    bootnum = line.split('Boot')[1].replace('*', '').split()[0]
+                    misc.execute_root('efibootmgr', '-n', bootnum)
+        ##copy other neokylin bootloader files
+        with misc.raised_privileges():
+            if os.path.exists(magic.ISO_MOUNT):
+                shutil.copy(magic.ISO_MOUNT + '/IMAGE/factory/grub.cfg', '/mnt/efi/EFI/linux/grub.cfg')
+            shutil.copy(magic.CDROM_MOUNT + '/IMAGE/factory/grub.cfg', '/mnt/efi/EFI/linux/grub.cfg')
 
         ##clean up ESP mount
         misc.execute_root('umount', '/mnt/efi')
 
-        #Make changes that would normally be done in factory stage1
-        ##rename efi directory so we don't offer it to customer boot in NVRAM menu
-        if os.path.exists('/mnt/efi'):
-            with misc.raised_privileges():
-                shutil.move('/mnt/efi', '/mnt/efi.factory')
-
         ##set install_in_progress flag
         with misc.raised_privileges():
-            if not os.path.exists('/mnt/factory/grub.cfg'):
-                build = misc.execute_root('/usr/share/dell/grub/build-factory.sh')
-                if build is False:
-                    raise RuntimeError("Error building grub cfg.")
-                with misc.raised_privileges():
-                    magic.white_tree("copy", re.compile('.'), '/var/lib/dell-recovery', '/mnt/factory')
             magic.fetch_output(['grub-editenv', '/mnt/factory/grubenv', 'set', 'install_in_progress=1'])
 
-        #update bto.xml
+        # update bto.xml
         path = os.path.join(magic.CDROM_MOUNT, 'bto.xml')
         if os.path.exists(path):
             self.xml_obj.load_bto_xml(path)
@@ -1050,7 +1094,7 @@ manually to proceed.")
             dr_version = magic.check_version('dell-recovery')
             ubi_version = magic.check_version('ubiquity')
             self.xml_obj.replace_node_contents('bootstrap', dr_version)
-            self.xml_obj.replace_node_contents('ubiquity' , ubi_version)
+            self.xml_obj.replace_node_contents('ubiquity', ubi_version)
             if os.path.exists('/var/log/syslog'):
                 with open('/var/log/syslog', 'rb') as rfd:
                     self.xml_obj.replace_node_contents('syslog', rfd.read())
@@ -1062,13 +1106,13 @@ manually to proceed.")
             if not bto_date:
                 with open(os.path.join(magic.CDROM_MOUNT, '.disk', 'info')) as rfd:
                     line = rfd.readline().strip()
-                date = line.split()[len(line.split())-1]
+                date = line.split()[len(line.split()) - 1]
                 self.xml_obj.replace_node_contents('date', date)
             self.xml_obj.write_xml('/mnt/bto.xml')
         misc.execute_root('umount', '/mnt')
 
-        for count in range(100,0,-10):
-            self.status("Restarting in %d seconds." % int(count/10), count)
+        for count in range(100, 0, -10):
+            self.status("Restarting in %d seconds." % int(count / 10), count)
             time.sleep(1)
 
 
