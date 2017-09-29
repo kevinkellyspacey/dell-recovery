@@ -188,7 +188,7 @@ def check_version(package='dell-recovery'):
               file=sys.stderr)
         return "unknown"
 
-def process_conf_file(original, new, uuid, number, recovery_text=''):
+def process_conf_file(original, new, uuid, number, recovery_text='', recovery_type='hdd'):
     """Replaces all instances of a partition, OS, and extra in a conf type file
        Generally used for things that need to touch grub"""
     if not os.path.isdir(os.path.split(new)[0]):
@@ -212,6 +212,8 @@ def process_conf_file(original, new, uuid, number, recovery_text=''):
                     line = line.replace("#PARTITION#", number)
                 if "#OS#" in line:
                     line = line.replace("#OS#", "%s %s" % (release["ID"], release["RELEASE"]))
+                if "#REC_TYPE#" in line:
+                    line = line.replace("#REC_TYPE#", recovery_type)
                 output.write(line)
 
 def fetch_output(cmd, data='', environment=os.environ):
@@ -221,7 +223,27 @@ def fetch_output(cmd, data='', environment=os.environ):
                                  stdin=subprocess.PIPE,
                                  env=environment,
                                  universal_newlines=True)
-    (out, err) = proc.communicate(data)
+    try:
+        (out, err) = proc.communicate(data)
+    except UnicodeDecodeError as error:
+        if locale.getpreferredencoding() != "UTF-8":
+            os.environ["LC_ALL"] = "C.UTF-8"
+            locale.setlocale(locale.LC_ALL, '')
+
+        if sys.stdout.encoding != "utf8":
+            sys.stdout = io.open(sys.stdout.fileno(), 'w', encoding='utf8')
+        if sys.stderr.encoding != "utf8":
+            sys.stderr = io.open(sys.stderr.fileno(), 'w', encoding='utf8')
+        if sys.stdin.encoding != "utf8":
+            sys.stdin = io.open(sys.stdin.fileno(), 'r', encoding='utf8')
+
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE,
+                                     stdin=subprocess.PIPE,
+                                     env=environment,
+                                     universal_newlines=True)
+        (out, err) = proc.communicate(data)
+
     if proc.returncode is None:
         proc.wait()
     if proc.returncode != 0:
@@ -614,6 +636,22 @@ def mark_unconditional_debs(add_directory=''):
                         to_install.append(package)
 
     return to_install
+
+def create_grub_entries(target_dir='/target', rec_type='hdd'):
+    '''Create GRUB entry for dell-recovery during ubiquity installation'''
+    env = os.environ
+    rpart = find_factory_partition_stats()
+    target_grub = '%s/etc/grub.d/99_dell_recovery' % target_dir
+    #create the grub entry only when recovery partition exists
+    if rpart:
+        rec_text = 'Restore OS to factory state'
+        process_conf_file(original = '/usr/share/dell/grub/99_dell_recovery', \
+                          new = target_grub,                                  \
+                          uuid = str(rpart["uuid"]),                          \
+                          number = str(rpart["number"]),                      \
+                          recovery_text = rec_text,
+                          recovery_type = rec_type)
+        os.chmod(target_grub, 0o755)
 
 def dbus_sync_call_signal_wrapper(dbus_iface, func, handler_map, *args, **kwargs):
     '''Run a D-BUS method call while receiving signals.
